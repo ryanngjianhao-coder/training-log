@@ -891,10 +891,20 @@ async function saveBw() {
             "kcal":980,"p":38,"c":120,"f":36,"items":[["Rice, 300 g cooked",390,8,84,1], ...],"note":"..."}
    items rows are [name, kcal, protein g, carbs g, fat g]. An array of meals, or {"meals":[...]}, also works.
    "ref" makes re-pasting the same code update the meal instead of duplicating it.             */
-const TARGET_DEF = { kcal:3000, p:150, c:400, f:85 };
-function targets() {
-  try { return { ...TARGET_DEF, ...JSON.parse(localStorage.getItem("gymlog_targets") || "{}") }; }
-  catch { return { ...TARGET_DEF }; }
+/* Targets live in Supabase (nutrition_targets, one row per change, latest effective_from wins) so they
+   follow you across devices and Claude can set them. localStorage is only a fallback if the table is missing. */
+const TARGET_DEF = { kcal:3250, p:150, c:480, f:80 };
+function localTargets() {
+  try { return JSON.parse(localStorage.getItem("gymlog_targets") || "{}"); } catch { return {}; }
+}
+function targets() { return { ...TARGET_DEF, ...(S.tg || localTargets()) }; }
+async function loadTargets() {
+  const { data, error } = await db.from("nutrition_targets").select("effective_from,kcal,protein_g,carbs_g,fat_g,note")
+    .lte("effective_from", localISO()).order("effective_from", { ascending:false }).limit(1);
+  if (error) { S.tgRemote = false; return; }
+  S.tgRemote = true;
+  const r = data[0];
+  S.tg = r ? { kcal:r.kcal, p:r.protein_g, c:r.carbs_g, f:r.fat_g, from:r.effective_from, note:r.note } : null;
 }
 const shiftDay = (iso, n) => { const d = parseDay(iso); d.setDate(d.getDate() + n); return localISO(d); };
 const r1 = v => Math.round(Number(v) * 10) / 10;
@@ -948,11 +958,16 @@ async function addManual() {
   toast(`Added ${name}`); renderFood();
 }
 
-function saveTargets() {
+async function saveTargets() {
   const t = {};
   for (const k of ["kcal", "p", "c", "f"]) { const x = parseFloat(($(`#t-${k}`).value || "").replace(",", ".")); if (x > 0) t[k] = Math.round(x); }
-  try { localStorage.setItem("gymlog_targets", JSON.stringify({ ...targets(), ...t })); } catch {}
-  toast("Targets saved"); renderFood();
+  const next = { ...targets(), ...t };
+  try { localStorage.setItem("gymlog_targets", JSON.stringify({ kcal:next.kcal, p:next.p, c:next.c, f:next.f })); } catch {}
+  const { error } = await db.from("nutrition_targets").upsert({ effective_from:localISO(), kcal:next.kcal, protein_g:next.p,
+    carbs_g:next.c, fat_g:next.f, note:"Edited in app" }, { onConflict:"effective_from" });
+  if (error) toast("Saved on this phone only. Run migration_targets.sql in Supabase to sync targets.");
+  else { await loadTargets(); toast("Targets saved"); }
+  renderFood();
 }
 
 async function renderFood() {
@@ -1039,7 +1054,7 @@ async function renderFood() {
         <label class="field">Fat g<input class="input" id="t-f" inputmode="numeric" value="${TG.f}"></label>
       </div>
       <button class="primary" data-act="targets-save" style="height:44px;font-size:20px">Save targets</button>
-      <p class="muted small" style="margin-top:8px">Adjust calories from the Body tab: once you've logged 4+ days, it tells you what to aim for based on your weight trend.</p>
+      <p class="muted small" style="margin-top:8px">${TG.from ? `Set ${fmtShort(parseDay(TG.from))}${TG.note ? `: ${esc(TG.note)}` : ""}. ` : ""}Adjust calories from the Body tab: once you've logged 4+ days, it tells you what to aim for based on your weight trend.</p>
     </details>`;
 }
 
@@ -1143,7 +1158,7 @@ document.addEventListener("keydown", e => {  // Enter on weight jumps to reps; E
     return renderSetup("SUPABASE_URL must be your Project URL, like https://abcd1234.supabase.co.");
   try { db = window.supabase.createClient(SUPABASE_URL.trim(), SUPABASE_ANON_KEY.trim()); }
   catch { return renderSetup("The Supabase key doesn't look right."); }
-  try { await Promise.all([loadNotes(), loadNext()]); await resume(); }
+  try { await Promise.all([loadNotes(), loadNext(), loadTargets()]); await resume(); }
   catch { toast("Could not reach Supabase. Check your connection."); }
   render();
 })();

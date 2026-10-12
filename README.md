@@ -21,7 +21,7 @@ Same stack as the car booking app: one `index.html`, Supabase (free tier) as the
 
 Use a new project, or add the tables to the car booking project. The free tier allows two active projects, and the table names don't clash.
 
-1. In Supabase, open **SQL Editor → New query**, paste the contents of `schema.sql`, and click **Run**. For the Food tab, run `migration_nutrition.sql` the same way.
+1. In Supabase, open **SQL Editor → New query**, paste the contents of `schema.sql`, and click **Run**. For the Food tab, run `migration_nutrition.sql` the same way. Then run `migration_targets.sql`: it stores your daily calorie and macro targets in Supabase (so they sync across devices) and backfills weigh-ins from the Fitbit export.
 2. Go to **Project Settings → API** (called **API Keys** on newer dashboards) and copy:
    - the **Project URL**
    - the **anon public** key (newer projects call it the **publishable** key, starting `sb_publishable_`; either works)
@@ -60,4 +60,5 @@ The same `id` used on different days (e.g. `cable-lateral-raise`) shares history
 - **Inactivity:** Supabase pauses free projects after about a week of no requests. Training four days a week keeps it awake. If it does pause, restore it from the dashboard.
 - **Never paste the secret key (`sb_secret_…`) into `index.html`.** It bypasses all row security. Only the anon/publishable key belongs in the page.
 - **Food estimates** from photos are typically within 20–30% on calories; oil, sauces and portion size are the big unknowns, so mention them. Weighing rice/pasta or giving pack details tightens it.
+- **Targets:** the active target is the latest row in `nutrition_targets` dated today or earlier. Saving targets in the app adds or updates today's row, so the table doubles as a history of changes.
 - **Pull-ups:** log added weight only (0 for bodyweight), so the progression logic works.
