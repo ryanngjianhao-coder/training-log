@@ -13,6 +13,7 @@ Same stack as the car booking app: one `index.html`, Supabase (free tier) as the
 - **Return ramp** toggle: one fewer set per exercise for the first two weeks back.
 - **History:** your last 40 finished sessions, with every set.
 - **Progress:** estimated 1RM (Epley) trend and top set per session for any exercise.
+- **Food:** send Claude (in the Fitness project) a photo of a meal plus any details. It replies with a one-line meal code; tap **Paste**, then **Save meal**. The tab shows the day's calories and macros against your targets, each meal with its itemised breakdown, and the last 7 days. Re-pasting the same code updates the meal rather than duplicating it. **Add by hand** covers shakes and packaged food. Once 4+ days are logged, the Body tab turns its bulk verdict into a concrete calorie target.
 
 ## Setup (about 10 minutes)
 
@@ -20,7 +21,7 @@ Same stack as the car booking app: one `index.html`, Supabase (free tier) as the
 
 Use a new project, or add the tables to the car booking project. The free tier allows two active projects, and the table names don't clash.
 
-1. In Supabase, open **SQL Editor → New query**, paste the contents of `schema.sql`, and click **Run**.
+1. In Supabase, open **SQL Editor → New query**, paste the contents of `schema.sql`, and click **Run**. For the Food tab, run `migration_nutrition.sql` the same way.
 2. Go to **Project Settings → API** (called **API Keys** on newer dashboards) and copy:
    - the **Project URL**
    - the **anon public** key (newer projects call it the **publishable** key, starting `sb_publishable_`; either works)
@@ -57,4 +58,6 @@ The same `id` used on different days (e.g. `cable-lateral-raise`) shares history
 
 - **Privacy:** like the car booking app, there's no login. Anyone with the page URL can see the key in the source and read or edit the log. Fine for a personal gym log. If you ever want it locked down, the fix is Supabase Auth plus per-user RLS policies.
 - **Inactivity:** Supabase pauses free projects after about a week of no requests. Training four days a week keeps it awake. If it does pause, restore it from the dashboard.
+- **Never paste the secret key (`sb_secret_…`) into `index.html`.** It bypasses all row security. Only the anon/publishable key belongs in the page.
+- **Food estimates** from photos are typically within 20–30% on calories; oil, sauces and portion size are the big unknowns, so mention them. Weighing rice/pasta or giving pack details tightens it.
 - **Pull-ups:** log added weight only (0 for bodyweight), so the progression logic works.

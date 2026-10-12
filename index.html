@@ -43,7 +43,7 @@ nav button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 -3px 0 var(-
 @media (max-width:480px){
   .brand{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
   nav{flex:1;justify-content:space-between}
-  nav button{flex:1;padding:10px 2px;font-size:15px}
+  nav button{flex:1;padding:10px 1px;font-size:14px}
 }
 
 main.wrap{padding:20px 16px calc(150px + env(safe-area-inset-bottom,0px))}
@@ -164,6 +164,33 @@ th{font-weight:600;color:var(--muted);font-size:13px}
 .setup code{background:var(--field);padding:2px 5px;border-radius:4px;font-size:14px}
 .setup ol{padding-left:20px;margin:10px 0 0}
 .setup li{margin-bottom:6px}
+
+/* food */
+.datebar{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.datebar strong{flex:1;text-align:center;font:700 24px/1 var(--cond)}
+.datebar button{width:48px;height:44px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:600 22px/1 Barlow,sans-serif;cursor:pointer}
+.datebar button:disabled{opacity:.35;cursor:default}
+.kcal-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.mbar{display:grid;grid-template-columns:64px 1fr auto;gap:10px;align-items:center;font-size:14px;padding:5px 0}
+.mbar .r{min-width:92px}
+.fill.over{background:var(--red)}
+details.meal{border-top:1px solid var(--line)}
+details.meal:first-of-type{border-top:0}
+details.meal summary{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:10px 0;cursor:pointer;list-style:none}
+details.meal summary::-webkit-details-marker{display:none}
+details.meal summary strong{font-weight:600}
+details.meal .macros{grid-column:1/-1;font-size:13px;color:var(--muted)}
+details.meal ul{list-style:none;margin:0 0 6px;padding:0;font-size:14px}
+details.meal li{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px dashed var(--line)}
+.meal-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px;padding-bottom:10px}
+.meal-foot button{background:none;border:0;color:var(--red);font:600 14px Barlow,sans-serif;cursor:pointer;padding:6px 0}
+.row-btns{display:flex;gap:8px;margin-top:8px}
+.row-btns .secondary{flex:none}
+.row-btns .primary{margin:0;flex:1;height:44px;font-size:20px}
+.form4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px}
+.form4 .wide{grid-column:1/-1}
+.weeks.w7{grid-template-columns:repeat(7,minmax(0,1fr))}
+.weeks.w7 b{font-size:17px}
 </style>
 </head>
 <body>
@@ -175,6 +202,7 @@ th{font-weight:600;color:var(--muted);font-size:13px}
       <button data-view="history">History</button>
       <button data-view="progress">Progress</button>
       <button data-view="body">Body</button>
+      <button data-view="food">Food</button>
     </nav>
   </div>
 </header>
@@ -523,6 +551,7 @@ function render() {
   if (S.view === "history") return renderHistory();
   if (S.view === "progress") return renderProgress();
   if (S.view === "body") return renderBody();
+  if (S.view === "food") return renderFood();
   S.session ? renderSession() : renderPicker();
 }
 
@@ -802,18 +831,25 @@ function renderTrend(id, per = perExercise(S.all)) {
 
 async function renderBody() {
   app.innerHTML = `<h1 class="h">Bodyweight</h1><p class="muted">Loading…</p>`;
-  const { data, error } = await db.from("bodyweight").select("day,weight_kg").order("day", { ascending:true }).limit(2000);
+  const [{ data, error }, food] = await Promise.all([
+    db.from("bodyweight").select("day,weight_kg").order("day", { ascending:true }).limit(2000),
+    db.from("meals").select("day,kcal,protein_g").gte("day", shiftDay(localISO(), -7)).lt("day", localISO()),
+  ]);
   if (S.view !== "body") return;
   if (error) { app.innerHTML = `<h1 class="h">Bodyweight</h1><p class="empty">Could not load bodyweight. If you haven't yet, run migration.sql in Supabase.</p>`; return; }
   S.bw = data;
   const t = bwTrend(data), last = t.pts.at(-1);
+  const fa = food.error ? null : foodAvg(food.data);           // last 7 full days, today excluded
+  const intake = fa && fa.days >= 4 ? fa.kcal : null;
+  const aim = d => `Aim for about ${(Math.round((intake + d) / 50) * 50).toLocaleString("en-GB")} kcal a day.`;
   let verdict = "Log at least two weeks of weigh-ins to see a trend.";
   if (t.rate != null) {
     const r = fmtRate(t.rate);
-    verdict = t.rate < 0.25 ? `${r}. Not enough for size: eat 150–200 kcal a day more.`
-            : t.rate <= 1 ? `${r}. On track for a lean bulk.`
-            : `${r}. Faster than needed, so more of it will be fat: trim 150–200 kcal a day.`;
+    verdict = t.rate < 0.25 ? `${r}. Not enough for size: eat 150–200 kcal a day more.${intake ? ` ${aim(175)}` : ""}`
+            : t.rate <= 1 ? `${r}. On track for a lean bulk.${intake ? " Keep eating what you're eating." : ""}`
+            : `${r}. Faster than needed, so more of it will be fat: trim 150–200 kcal a day.${intake ? ` ${aim(-175)}` : ""}`;
   }
+  const foodLine = fa && fa.days ? `<p class="muted small" style="margin-top:6px">Food, last 7 days: ${fa.kcal.toLocaleString("en-GB")} kcal and ${fa.p} g protein a day on average (${fa.days} of 7 days logged${fa.days < 4 ? "; log 4+ for a calorie target" : ""}).</p>` : "";
   const recent = t.pts.slice(-60);
   app.innerHTML = `
     <h1 class="h">Bodyweight</h1>
@@ -829,7 +865,7 @@ async function renderBody() {
     <section class="panel">
       <p class="muted small">7-day average</p>
       <p class="big">${fmtW(Math.round(last.avg * 10) / 10)} kg</p>
-      <p style="margin-top:6px">${verdict}</p>
+      <p style="margin-top:6px">${verdict}</p>${foodLine}
       <div style="margin-top:12px">${chart(recent.map(p => ({ v:p.avg, raw:p.raw })), "Bodyweight 7-day average with daily weigh-ins")}</div>
       <p class="muted small">Line: 7-day average. Dots: individual weigh-ins.</p>
     </section>
@@ -847,6 +883,164 @@ async function saveBw() {
   const { error } = await db.from("bodyweight").upsert({ day, weight_kg:w }, { onConflict:"day" });
   if (error) return toast("Weight not saved. Try again.");
   toast("Weight saved"); renderBody();
+}
+
+/* ---------- food ----------
+   Meals come in as a JSON line that Claude writes from a photo + details, pasted into the Food tab.
+   Format: {"ref":"m-2026-10-12-1310","meal":"Chicken katsu curry","at":"2026-10-12T13:10",
+            "kcal":980,"p":38,"c":120,"f":36,"items":[["Rice, 300 g cooked",390,8,84,1], ...],"note":"..."}
+   items rows are [name, kcal, protein g, carbs g, fat g]. An array of meals, or {"meals":[...]}, also works.
+   "ref" makes re-pasting the same code update the meal instead of duplicating it.             */
+const TARGET_DEF = { kcal:3000, p:150, c:400, f:85 };
+function targets() {
+  try { return { ...TARGET_DEF, ...JSON.parse(localStorage.getItem("gymlog_targets") || "{}") }; }
+  catch { return { ...TARGET_DEF }; }
+}
+const shiftDay = (iso, n) => { const d = parseDay(iso); d.setDate(d.getDate() + n); return localISO(d); };
+const r1 = v => Math.round(Number(v) * 10) / 10;
+function foodAvg(rows) {
+  const by = {};
+  for (const m of rows || []) { const d = (by[m.day] ??= { kcal:0, p:0 }); d.kcal += Number(m.kcal); d.p += Number(m.protein_g); }
+  const days = Object.values(by), n = days.length;
+  return { days:n, kcal:n ? Math.round(days.reduce((t, d) => t + d.kcal, 0) / n) : 0, p:n ? Math.round(days.reduce((t, d) => t + d.p, 0) / n) : 0 };
+}
+
+function parseMeals(text) {
+  const s = text.search(/[\[{]/), e = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+  if (s < 0 || e < s) throw new Error("No meal code found. Paste the whole line Claude gave you.");
+  let j;
+  try { j = JSON.parse(text.slice(s, e + 1)); } catch { throw new Error("That code is cut off or edited. Copy it again from Claude."); }
+  const list = Array.isArray(j) ? j : Array.isArray(j.meals) ? j.meals : [j];
+  return list.map(m => {
+    const name = String(m.meal || m.name || "").trim();
+    const at = m.at ? new Date(m.at) : new Date();
+    const num = (v, max) => { const x = Number(v); return x >= 0 && x <= max ? x : NaN; };
+    const kcal = num(m.kcal, 10000), p = num(m.p ?? 0, 1000), c = num(m.c ?? 0, 2000), f = num(m.f ?? 0, 1000);
+    if (!name || isNaN(at) || !(kcal > 0) || [p, c, f].some(isNaN)) throw new Error("A meal in that code is missing its name, time or numbers.");
+    const items = Array.isArray(m.items) ? m.items.filter(Array.isArray).map(([n, k, ip, ic, iff]) =>
+      [String(n), Math.round(Number(k) || 0), r1(ip || 0), r1(ic || 0), r1(iff || 0)]) : [];
+    return { ref:m.ref ? String(m.ref).slice(0, 80) : null, eaten_at:at.toISOString(), day:localISO(at), name:name.slice(0, 120),
+             kcal:Math.round(kcal), protein_g:r1(p), carbs_g:r1(c), fat_g:r1(f), items, note:m.note ? String(m.note).slice(0, 500) : null, source:"claude" };
+  });
+}
+
+async function importMeals() {
+  const box = $("#mealcode"); let rows;
+  try { rows = parseMeals(box.value); } catch (err) { return toast(err.message); }
+  const { error } = await db.from("meals").upsert(rows, { onConflict:"ref" });
+  if (error) return toast("Meal not saved. Check your connection, or run migration_nutrition.sql in Supabase.");
+  box.value = "";
+  S.foodDay = rows.at(-1).day;
+  toast(rows.length === 1 ? `Added ${rows[0].name}, ${rows[0].kcal} kcal` : `Added ${rows.length} meals`);
+  renderFood();
+}
+
+async function addManual() {
+  const v = id => parseFloat(($(id).value || "").replace(",", "."));
+  const name = $("#mname").value.trim(), kcal = v("#mkcal");
+  if (!name) return toast("Name the meal.");
+  if (!(kcal > 0 && kcal < 10000)) return toast("Enter the calories.");
+  const now = new Date(), at = S.foodDay === localISO() ? now : new Date(`${S.foodDay}T12:00`);
+  const row = { ref:null, eaten_at:at.toISOString(), day:S.foodDay, name, kcal:Math.round(kcal),
+                protein_g:r1(v("#mp") || 0), carbs_g:r1(v("#mc") || 0), fat_g:r1(v("#mf") || 0), items:[], note:null, source:"manual" };
+  const { error } = await db.from("meals").insert(row);
+  if (error) return toast("Meal not saved. Try again.");
+  toast(`Added ${name}`); renderFood();
+}
+
+function saveTargets() {
+  const t = {};
+  for (const k of ["kcal", "p", "c", "f"]) { const x = parseFloat(($(`#t-${k}`).value || "").replace(",", ".")); if (x > 0) t[k] = Math.round(x); }
+  try { localStorage.setItem("gymlog_targets", JSON.stringify({ ...targets(), ...t })); } catch {}
+  toast("Targets saved"); renderFood();
+}
+
+async function renderFood() {
+  S.foodDay ??= localISO();
+  const day = S.foodDay, today = localISO(), from = shiftDay(day, -6);
+  app.innerHTML = `<h1 class="h">Food</h1><p class="muted">Loading…</p>`;
+  const { data, error } = await db.from("meals").select("id,day,eaten_at,name,kcal,protein_g,carbs_g,fat_g,items,note,source")
+    .gte("day", from).lte("day", day).order("eaten_at", { ascending:true });
+  if (S.view !== "food" || S.foodDay !== day) return;
+  if (error) { app.innerHTML = `<h1 class="h">Food</h1><p class="empty">Could not load meals. If you haven't yet, run migration_nutrition.sql in Supabase.</p>`; return; }
+  const TG = targets(), meals = data.filter(m => m.day === day);
+  const tot = meals.reduce((a, m) => ({ kcal:a.kcal + Number(m.kcal), p:a.p + Number(m.protein_g), c:a.c + Number(m.carbs_g), f:a.f + Number(m.fat_g) }), { kcal:0, p:0, c:0, f:0 });
+  const left = TG.kcal - tot.kcal;
+  const mbar = (label, v, t, unit) => {
+    const pct = Math.min(100, v / t * 100);
+    return `<div class="mbar"><span>${label}</span><span class="track"><span class="fill${v > t * 1.1 ? " over" : pct >= 90 ? " full" : ""}" style="width:${pct}%"></span></span>
+      <span class="r">${Math.round(v).toLocaleString("en-GB")} / ${t.toLocaleString("en-GB")}${unit}</span></div>`;
+  };
+  const week = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = shiftDay(day, -i), ms = data.filter(m => m.day === d);
+    const k = ms.reduce((t, m) => t + Number(m.kcal), 0), p = ms.reduce((t, m) => t + Number(m.protein_g), 0);
+    week.push({ d, n:ms.length, k, hit:ms.length && k >= TG.kcal * .9 && p >= TG.p * .9 });
+  }
+  const fa = foodAvg(data);
+  const dayLabel = day === today ? "Today" : day === shiftDay(today, -1) ? "Yesterday" : fmtDate(parseDay(day));
+
+  app.innerHTML = `
+    <h1 class="h">Food</h1>
+    <section class="panel">
+      <h2>Add a meal from Claude</h2>
+      <p class="muted small">Send Claude a photo of your food with any details (portion, brand, oil, sauce). Copy the code it sends back, then paste and save it here.</p>
+      <textarea id="mealcode" rows="3" placeholder='{"meal":"…","kcal":…}' autocomplete="off" spellcheck="false"></textarea>
+      <div class="row-btns"><button class="secondary" data-act="food-paste">Paste</button><button class="primary" data-act="food-import">Save meal</button></div>
+    </section>
+
+    <div class="datebar">
+      <button data-act="food-day" data-n="-1" aria-label="Previous day">‹</button>
+      <strong>${dayLabel}</strong>
+      <button data-act="food-day" data-n="1" aria-label="Next day" ${day >= today ? "disabled" : ""}>›</button>
+    </div>
+
+    <section class="panel">
+      <div class="kcal-head"><p class="big">${Math.round(tot.kcal).toLocaleString("en-GB")} kcal</p>
+        <p class="muted">${left >= 0 ? `${Math.round(left).toLocaleString("en-GB")} left` : `${Math.round(-left).toLocaleString("en-GB")} over`}</p></div>
+      <div style="margin-top:10px">
+        ${mbar("Calories", tot.kcal, TG.kcal, "")}${mbar("Protein", tot.p, TG.p, " g")}${mbar("Carbs", tot.c, TG.c, " g")}${mbar("Fat", tot.f, TG.f, " g")}
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Meals</h2>
+      ${meals.length ? meals.map(m => `
+        <details class="meal">
+          <summary><strong>${esc(m.name)}</strong><span class="nums">${m.kcal} kcal</span>
+            <span class="macros">${fmtTime(m.eaten_at)} · ${r1(m.protein_g)} g protein · ${r1(m.carbs_g)} g carbs · ${r1(m.fat_g)} g fat</span></summary>
+          ${m.items?.length ? `<ul>${m.items.map(i => `<li><span>${esc(i[0])}</span><span class="nums">${i[1]} kcal · ${i[2]} P</span></li>`).join("")}</ul>` : ""}
+          <div class="meal-foot"><span class="muted">${m.note ? esc(m.note) : m.source === "claude" ? "Estimated by Claude from a photo" : "Added by hand"}</span>
+            <button data-act="food-del" data-id="${m.id}">Delete</button></div>
+        </details>`).join("") : `<p class="muted">Nothing logged ${day === today ? "yet today" : "for this day"}.</p>`}
+      <details class="aux"><summary>Add by hand</summary>
+        <div class="form4">
+          <label class="field wide">Name<input class="input" id="mname" placeholder="e.g. protein shake"></label>
+          <label class="field">kcal<input class="input" id="mkcal" inputmode="decimal"></label>
+          <label class="field">Protein<input class="input" id="mp" inputmode="decimal"></label>
+          <label class="field">Carbs<input class="input" id="mc" inputmode="decimal"></label>
+          <label class="field">Fat<input class="input" id="mf" inputmode="decimal"></label>
+        </div>
+        <button class="primary" data-act="food-add" style="height:44px;font-size:20px">Add</button>
+      </details>
+    </section>
+
+    <section class="panel">
+      <h2>Last 7 days</h2>
+      <div class="weeks w7">${week.map(w => `<div class="wk${w.hit ? " full" : ""}"><b>${w.n ? (w.k / 1000).toFixed(1) + "k" : "–"}</b>${fmtShort(parseDay(w.d))}</div>`).join("")}</div>
+      <p class="muted small" style="margin-top:8px">${fa.days ? `Average on logged days: ${fa.kcal.toLocaleString("en-GB")} kcal, ${fa.p} g protein.` : "No meals logged this week."} Green means calories and protein both within 10% of target.</p>
+    </section>
+
+    <details class="panel aux"><summary>Daily targets</summary>
+      <div class="form4">
+        <label class="field">kcal<input class="input" id="t-kcal" inputmode="numeric" value="${TG.kcal}"></label>
+        <label class="field">Protein g<input class="input" id="t-p" inputmode="numeric" value="${TG.p}"></label>
+        <label class="field">Carbs g<input class="input" id="t-c" inputmode="numeric" value="${TG.c}"></label>
+        <label class="field">Fat g<input class="input" id="t-f" inputmode="numeric" value="${TG.f}"></label>
+      </div>
+      <button class="primary" data-act="targets-save" style="height:44px;font-size:20px">Save targets</button>
+      <p class="muted small" style="margin-top:8px">Adjust calories from the Body tab: once you've logged 4+ days, it tells you what to aim for based on your weight trend.</p>
+    </details>`;
 }
 
 function renderSetup(msg) {
@@ -890,6 +1084,17 @@ document.addEventListener("click", e => {
     case "discard": discard(false); break;
     case "export": exportCsv(); break;
     case "bwsave": saveBw(); break;
+    case "food-import": importMeals(); break;
+    case "food-add": addManual(); break;
+    case "targets-save": saveTargets(); break;
+    case "food-day": S.foodDay = shiftDay(S.foodDay, +t.dataset.n); renderFood(); break;
+    case "food-paste":
+      (navigator.clipboard?.readText?.() ?? Promise.reject()).then(txt => { $("#mealcode").value = txt; })
+        .catch(() => { $("#mealcode").focus(); toast("Long-press the box and choose Paste."); });
+      break;
+    case "food-del":
+      if (confirm("Delete this meal?")) db.from("meals").delete().eq("id", t.dataset.id).then(({ error }) => error ? toast("Could not delete.") : renderFood());
+      break;
     case "bwdel":
       if (confirm("Delete this weigh-in?")) db.from("bodyweight").delete().eq("day", t.dataset.day).then(({ error }) => error ? toast("Could not delete.") : renderBody());
       break;
